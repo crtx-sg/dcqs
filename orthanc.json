@@ -1,0 +1,30 @@
+{
+  "Name" : "${ORTHANC_NAME} in Docker Compose",
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "RemoteAccessAllowed": true,
+  "AuthenticationEnabled": true,
+  "HttpsCACertificates": "/etc/ssl/certs/ca-certificates.crt",
+  "Plugins": [
+    "/run/orthanc/plugins",
+    "/usr/share/orthanc/plugins"
+  ],
+  "Gdcm": {
+    "Throttling": 4,
+    "RestrictTransferSyntaxes": [
+      "1.2.840.10008.1.2.4.90",
+      "1.2.840.10008.1.2.4.91",
+      "1.2.840.10008.1.2.4.92",
+      "1.2.840.10008.1.2.4.93"
+    ]
+  },
+  "RegisteredUsers": {
+    "orthanc": "orthanc"
+  },
+  "DicomModalities" : {
+    "ORTHANC" : [ "ORTHANC", "localhost", 4242 ]
+  },
+  "OrthancExplorer2": {
+    "Enable": true,
+    "IsDefaultOrthancUI": true
+  }
+}
