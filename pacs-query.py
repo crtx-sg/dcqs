@@ -37,72 +37,49 @@ def save_processed_uid(uid):
 def query_for_new_studies(client, processed_uids):
     """
     Queries the Orthanc server directly for recent studies.
-
     This function queries for studies within the time window defined by
     QUERY_WINDOW and filters out any that have already been processed.
     """
     print("Querying Orthanc for new studies...")
-
     now = datetime.now()
     start_time = now - QUERY_WINDOW
-    
-    # Format date for the query (YYYYMMDD)
-    query_date = start_time.strftime('%Y%m%d')
-
     # Construct the find query payload.
-    # We ask for all studies from the start date onwards.
-    # We will filter by the precise time window in the code below.
+    # We ask for all studies and filter by the precise time window in the code below.
     query = {
         'Level': 'Study',
-        'Query': {
-            'StudyDate': f'{query_date}-',  # Search from this date forward
-        }
+        'Query': {}
     }
-
     new_studies = []
     try:
         # Use post_tools_find to query the Orthanc database directly
         study_ids = client.post_tools_find(query)
-        
-        print(f"Found {len(study_ids)} candidate studies since {query_date}.")
-
+        print(f"Found {len(study_ids)} candidate studies.")
         for study_id in study_ids:
             # Get the full study information
             study = Study(study_id, client)
-            main_info = study.get_main_information().get('MainDicomTags', {})
-            
-            study_uid = main_info.get('StudyInstanceUID')
+            study_info = study.get_main_information()
+            study_uid = study_info.get('MainDicomTags', {}).get('StudyInstanceUID')
             if not study_uid:
                 print(f"Warning: Found a study (ID: {study_id}) with no StudyInstanceUID. Skipping.")
                 continue
-
             # Skip if we have already processed this study
             if study_uid in processed_uids:
                 continue
-
-            # Now, check if the study is within our precise time window
-            study_date_str = main_info.get('StudyDate')
-            study_time_str = main_info.get('StudyTime', '000000')
-
-            if not study_date_str:
-                continue
-
+            # Now, check if the study is within our precise time window by
+            # checking the LastUpdate field.
+            last_update_str = study_info.get('LastUpdate')
             try:
-                # DICOM time can have fractional seconds, so we handle that by splitting.
-                study_datetime_str = f"{study_date_str}{study_time_str.split('.')[0]}"
-                study_datetime = datetime.strptime(study_datetime_str, '%Y%m%d%H%M%S')
-
-                if study_datetime >= start_time:
-                    print(f"  -> Found new study: {study_uid} from {study_datetime}")
+                # Orthanc's LastUpdate is in ISO 8601 format (e.g., '20230401T123000')
+                # It needs to be parsed into a timezone-aware datetime object.
+                last_update = datetime.strptime(last_update_str, '%Y%m%dT%H%M%S')
+                if last_update >= start_time:
+                    print(f"  -> Found new study: {study_uid} from {last_update}")
                     new_studies.append({'ID': study_id})
-                
-            except ValueError:
-                print(f"Warning: Could not parse date/time for study {study_uid} ('{study_date_str}' '{study_time_str}'). Skipping.")
+            except (ValueError, TypeError):
+                print(f"Warning: Could not parse LastUpdate for study {study_uid} ('{last_update_str}'). Skipping.")
                 continue
-
     except Exception as e:
         print(f"Error during study query: {e}", file=sys.stderr)
-
     return new_studies
 
 def retrieve_and_save_study(client, study_orthanc_id):
@@ -121,7 +98,7 @@ def retrieve_and_save_study(client, study_orthanc_id):
         instance_count = 0
         for series in study.series:
             for instance in series.instances:
-                dicom_file_bytes = instance.get_file()
+                dicom_file_bytes = instance.get_dicom_file_content()
                 instance_filename = f"{instance.uid}.dcm"
                 instance_path = os.path.join(study_path, instance_filename)
                 with open(instance_path, 'wb') as f:
